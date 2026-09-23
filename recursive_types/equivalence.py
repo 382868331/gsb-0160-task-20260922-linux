@@ -145,7 +145,12 @@ def _structural_children(
     成功返回 ``(child_pairs, None)``，``child_pairs`` 为需要继续协同检查的
     ``(子节点1, 子节点2, 走到该子对的选择)`` 列表；
     失败返回 ``(None, mismatch)``。本函数不做递归。
+
+    Alias 节点透明：先把两个位置各自沿 Alias 链归一到结构节点再比较，
+    Alias 不产生结构层、不计入守卫。
     """
+    x = g1.resolve_alias(x)
+    y = g2.resolve_alias(y)
     n1 = g1[x]
     n2 = g2[y]
     k1, k2 = n1.kind, n2.kind
@@ -176,8 +181,8 @@ def _structural_children(
         for name in sorted(names1):  # 确定性顺序；不影响按名对应
             children.append(
                 (
-                    f1[name].target,
-                    f2[name].target,
+                    g1.resolve_alias(f1[name].target),
+                    g2.resolve_alias(f2[name].target),
                     Step("field", name),
                 )
             )
@@ -193,10 +198,20 @@ def _structural_children(
                 f"{len(p2)} param(s)",
             )
         children = [
-            (a, b, Step("param", str(j)))
+            (
+                g1.resolve_alias(a),
+                g2.resolve_alias(b),
+                Step("param", str(j)),
+            )
             for j, (a, b) in enumerate(zip(p1, p2))
         ]
-        children.append((n1.result, n2.result, Step("result", "")))
+        children.append(
+            (
+                g1.resolve_alias(n1.result),
+                g2.resolve_alias(n2.result),
+                Step("result", ""),
+            )
+        )
         return children, None
 
     raise AssertionError(f"unhandled kind {k1!r}")  # pragma: no cover
@@ -363,14 +378,21 @@ def check_equivalence(
 
     a = g1.root if root1 is None else _check_root(root1, g1, "root1")
     b = g2.root if root2 is None else _check_root(root2, g2, "root2")
+    # 关系/路径统一在结构节点层（Alias 透明，不计结构层）。
+    a_struct = g1.resolve_alias(a)
+    b_struct = g2.resolve_alias(b)
 
-    related, mismatch, used = _collect_bisimulation(g1, a, g2, b, budget)
+    related, mismatch, used = _collect_bisimulation(
+        g1, a_struct, g2, b_struct, budget
+    )
     if related is not None:
-        return EquivalenceCertificate((a, b), related)
+        return EquivalenceCertificate((a_struct, b_struct), related)
 
     if mismatch is not None:
         # DFS 已发现一处不匹配，但契约要求最短路径，交给 BFS 精确定位。
-        divergence, budget_hit = _shortest_divergence(g1, a, g2, b, budget)
+        divergence, budget_hit = _shortest_divergence(
+            g1, a_struct, g2, b_struct, budget
+        )
         if budget_hit:
             raise BudgetExceededError(budget, used)
         assert divergence is not None

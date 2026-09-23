@@ -52,6 +52,16 @@ class GraphSizeError(TypeGraphError):
     """节点数不在 1..MAX_NODES 范围内。"""
 
 
+class UnguardedRecursionError(TypeGraphError):
+    """从根可达的递归引用只经过 ``Alias`` 透明边（收缩性/受保护性违反）。
+
+    典型例子是 ``μX. X``：展开一次仍是自己，不产生任何有限层结构，
+    equi-recursive 下树无定义。受保护的环（如 ``μX. Product{a: X}``、
+    ``μX. X -> Int``）合法。异常消息带环上的节点序列（含回边），
+    可直接定位无保护循环。
+    """
+
+
 class BudgetExceededError(RecTypeError):
     """协同检查的搜索预算在得出结论前耗尽。
 
