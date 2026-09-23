@@ -1,15 +1,17 @@
-"""显式节点的递归类型等价检查（equi-recursive type equivalence）。
+"""显式节点的递归类型：equi-recursive 等价检查与结构子类型判断。
 
 公开接口::
 
     from recursive_types import (
         TypeGraph, Field,
-        IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
+        IntNode, BoolNode, ProductNode, SumNode, FunctionNode, AliasNode,
         check_equivalence, are_equivalent, verify_certificate,
-        EquivalenceCertificate, Divergence, Step, Mismatch,
+        EquivalenceCertificate, Divergence,
+        check_subtype, is_subtype, verify_subtype_certificate,
+        SubtypeCertificate, SubtypeFailure,
         RecTypeError, TypeGraphError, ArityError, DanglingEdgeError,
         DuplicateFieldError, InvalidNodeError, InvalidRootError,
-        GraphSizeError, BudgetExceededError,
+        GraphSizeError, BudgetExceededError, UnguardedRecursionError,
         MAX_NODES, DEFAULT_BUDGET,
     )
 """
@@ -26,6 +28,7 @@ from .errors import (
     InvalidRootError,
     RecTypeError,
     TypeGraphError,
+    UnguardedRecursionError,
 )
 from .equivalence import (
     DEFAULT_BUDGET,
@@ -39,12 +42,14 @@ from .equivalence import (
     verify_certificate,
 )
 from .model import (
+    ALIAS,
     BOOL,
     FUNCTION,
     INT,
     PRODUCT,
     SUM,
     MAX_NODES,
+    AliasNode,
     BoolNode,
     Field,
     FunctionNode,
@@ -53,6 +58,16 @@ from .model import (
     ProductNode,
     SumNode,
     TypeGraph,
+    resolve_alias,
+)
+from .subtyping import (
+    DEFAULT_SUBTYPE_BUDGET,
+    SubtypeCertificate,
+    SubtypeFailure,
+    SubtypeResult,
+    check_subtype,
+    is_subtype,
+    verify_subtype_certificate,
 )
 
 __all__ = [
@@ -65,13 +80,16 @@ __all__ = [
     "ProductNode",
     "SumNode",
     "FunctionNode",
+    "AliasNode",
     "INT",
     "BOOL",
     "PRODUCT",
     "SUM",
     "FUNCTION",
+    "ALIAS",
     "MAX_NODES",
-    # 算法
+    "resolve_alias",
+    # 等价
     "check_equivalence",
     "are_equivalent",
     "verify_certificate",
@@ -81,6 +99,14 @@ __all__ = [
     "Mismatch",
     "EquivalenceResult",
     "DEFAULT_BUDGET",
+    # 子类型
+    "check_subtype",
+    "is_subtype",
+    "verify_subtype_certificate",
+    "SubtypeCertificate",
+    "SubtypeFailure",
+    "SubtypeResult",
+    "DEFAULT_SUBTYPE_BUDGET",
     # 错误
     "RecTypeError",
     "TypeGraphError",
@@ -91,4 +117,5 @@ __all__ = [
     "InvalidRootError",
     "GraphSizeError",
     "BudgetExceededError",
+    "UnguardedRecursionError",
 ]

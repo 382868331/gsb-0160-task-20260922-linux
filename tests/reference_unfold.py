@@ -2,7 +2,8 @@
 
 本模块刻意不 import ``recursive_types.equivalence`` 的任何判定逻辑，
 只用其数据结构读取输入；期望值（展开树）由这里独立计算。
-仅适用于边只指向更大下标（DAG）的无环图。
+仅适用于边只指向更大下标（DAG）的无环图。透明 Alias 节点在展开时直接穿透，
+ro/rw 字段的可变性标记也纳入结构比较。
 """
 
 from __future__ import annotations
@@ -21,8 +22,12 @@ def unfold(g: TypeGraph, root: int) -> tuple:
         k = node.kind
         if k in ("Int", "Bool"):
             tree = (k,)
+        elif k == "Alias":
+            tree = build(node.target)
         elif k in ("Product", "Sum"):
-            fields = tuple(sorted((f.name, build(f.target)) for f in node.fields))
+            fields = tuple(
+                sorted((f.name, f.readonly, build(f.target)) for f in node.fields)
+            )
             tree = (k, fields)
         else:  # Function
             params = tuple(build(p) for p in node.params)
@@ -44,6 +49,12 @@ def reference_pair_children(
     g1: TypeGraph, i: int, g2: TypeGraph, j: int
 ) -> list[tuple[int, int]] | None:
     """独立的一层匹配：匹配返回子对列表，否则 None。"""
+    def resolve(g: TypeGraph, x: int) -> int:
+        while g[x].kind == "Alias":
+            x = g[x].target
+        return x
+
+    i, j = resolve(g1, i), resolve(g2, j)
     n1, n2 = g1[i], g2[j]
     if n1.kind != n2.kind:
         return None
@@ -53,6 +64,8 @@ def reference_pair_children(
         f1 = sorted(n1.fields, key=lambda f: f.name)
         f2 = sorted(n2.fields, key=lambda f: f.name)
         if [f.name for f in f1] != [f.name for f in f2]:
+            return None
+        if [f.readonly for f in f1] != [f.readonly for f in f2]:
             return None
         return [(a.target, b.target) for a, b in zip(f1, f2)]
     # Function

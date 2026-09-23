@@ -47,6 +47,7 @@ from .model import (
     ProductNode,
     SumNode,
     TypeGraph,
+    resolve_alias,
 )
 
 #: 默认成对展开预算（90000 为 300×300 对图的理论对数上界）。
@@ -146,8 +147,8 @@ def _structural_children(
     ``(子节点1, 子节点2, 走到该子对的选择)`` 列表；
     失败返回 ``(None, mismatch)``。本函数不做递归。
     """
-    n1 = g1[x]
-    n2 = g2[y]
+    n1 = g1[resolve_alias(g1, x)]
+    n2 = g2[resolve_alias(g2, y)]
     k1, k2 = n1.kind, n2.kind
     if k1 != k2:
         return None, Mismatch(
@@ -174,10 +175,17 @@ def _structural_children(
             )
         children: list[tuple[int, int, Step]] = []
         for name in sorted(names1):  # 确定性顺序；不影响按名对应
+            c1, c2 = f1[name], f2[name]
+            if c1.readonly != c2.readonly:
+                return None, Mismatch(
+                    f"{k1} field {name!r} mutability differs",
+                    f"readonly={c1.readonly}",
+                    f"readonly={c2.readonly}",
+                )
             children.append(
                 (
-                    f1[name].target,
-                    f2[name].target,
+                    c1.target,
+                    c2.target,
                     Step("field", name),
                 )
             )

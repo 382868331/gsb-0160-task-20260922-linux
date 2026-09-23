@@ -52,6 +52,15 @@ class GraphSizeError(TypeGraphError):
     """节点数不在 1..MAX_NODES 范围内。"""
 
 
+class UnguardedRecursionError(TypeGraphError):
+    """存在**无保护递归**环：环上只有裸 :class:`AliasNode`（别名透传），
+    没有经过任何 Product/Sum/Function 构造子（即 μX.X 一类方程）。
+
+    这样的方程没有唯一的无穷展开树，等价与子类型均无从定义，构造期即拒绝。
+    异常消息给出环上的节点编号序列，便于定位。
+    """
+
+
 class BudgetExceededError(RecTypeError):
     """协同检查的搜索预算在得出结论前耗尽。
 
