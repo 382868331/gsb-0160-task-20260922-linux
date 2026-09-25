@@ -18,6 +18,7 @@ from recursive_types import (
     SumNode,
     TypeGraph,
     TypeGraphError,
+    canonicalize,
     check_equivalence,
     verify_certificate,
 )
@@ -106,8 +107,46 @@ def demo_divergence() -> None:
     print(f"分歧点: {result.mismatch.reason}")
 
 
+def demo_canonicalize() -> None:
+    section("[3] 规范化：等价节点压成共享表示（有限商图 + 确定编号）")
+
+    # 同一类型 μX. X -> Int 的三种图：自环、双节点互指环、带不可达垃圾。
+    g_loop = TypeGraph([FunctionNode((0,), 1), IntNode()], root=0)
+    g_pair = TypeGraph(
+        [FunctionNode((1,), 2), FunctionNode((0,), 2), IntNode()], root=0
+    )
+    g_dirty = TypeGraph(
+        [
+            FunctionNode((0,), 1),               # 0: 根，自环
+            IntNode(),                           # 1
+            SumNode((Field("junk", 2),)),        # 2: 不可达垃圾
+            ProductNode((Field("z", 3),)),       # 3: 不可达垃圾
+        ],
+        root=0,
+    )
+
+    c_loop = canonicalize(g_loop)
+    c_pair = canonicalize(g_pair)
+    c_dirty = canonicalize(g_dirty)
+
+    print("μX. X -> Int 的三种图布局（自环 / 双节点环 / 自环+垃圾）：")
+    print(f"  商图节点数: {len(c_loop.graph)}（根编号 {c_loop.root}）")
+    print(f"  自环图   old_to_new = {c_loop.old_to_new}")
+    print(f"  双节点环 old_to_new = {c_pair.old_to_new}")
+    print(f"  带垃圾   old_to_new = {c_dirty.old_to_new}  (-1 = 不可达)")
+    same = c_loop.to_bytes() == c_pair.to_bytes() == c_dirty.to_bytes()
+    print(f"  三种布局的规范化字节表示一致: {same}")
+    assert same
+    print(f"  规范化字节表示: {c_loop.to_bytes()!r}")
+
+    # 商图根与原根仍按原语义等价（交给原等价检查复核）。
+    result = check_equivalence(g_pair, c_pair.graph, root2=c_pair.root)
+    assert isinstance(result, EquivalenceCertificate)
+    print(f"  原根 vs 商图根等价复核: {verify_certificate(g_pair, c_pair.graph, result)}")
+
+
 def demo_rejection() -> None:
-    section("[3] 异常边界：构造期拒绝悬空边（可定位错误，不静默纠正）")
+    section("[4] 异常边界：构造期拒绝悬空边（可定位错误，不静默纠正）")
 
     try:
         TypeGraph(
@@ -135,9 +174,11 @@ def main() -> None:
     print("递归类型 equi-recursive 等价检查 —— 固定输入演示")
     demo_equivalence_certificate()
     demo_divergence()
+    demo_canonicalize()
     demo_rejection()
     print()
-    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、2 个构造期拒绝。")
+    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、"
+          "1 组规范化商图、2 个构造期拒绝。")
 
 
 if __name__ == "__main__":

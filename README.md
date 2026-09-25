@@ -3,6 +3,8 @@
 一个零依赖、纯标准库的 Python 题库：输入两张**显式节点、可能含环**的有根类型图，
 按无限展开树的 **equi-recursive 等价**定义做成对协同检查，返回等价关系
 （bisimulation）证书或**最短**分歧路径；构造期拒绝悬空边、错误元数等非法输入。
+另提供**规范化入口**：把同一张图中互为双模拟的节点合并成有限**商图**，
+给出旧节点到新节点的映射与从根开始的确定编号，适合作为类型缓存的键。
 
 - Python：**3.14.7**（仅使用 3.10+ 通用语法，不依赖任何第三方包）
 - 依赖：**无**。安装 Python 后直接运行；核心、测试、演示全部离线。
@@ -11,12 +13,14 @@
 ## 运行命令
 
 ```bash
-# 必要测试（47 个用例）
-python -m unittest discover -s tests -v
+# 必要测试（61 个用例）
+./.venv/bin/python -m unittest discover -s tests -v
 
-# 固定输入演示（真实计算；本机实测 < 0.1 秒，远低于约 8 秒要求）
-python demo.py
+# 固定输入演示（真实计算；本机实测 < 0.1 秒，远低于 90 秒要求）
+./.venv/bin/python demo.py
 ```
+
+（任何指向本仓库的 `python`/`python3` 均可，不要求特定虚拟环境。）
 
 ## 公开数据结构
 
@@ -26,6 +30,7 @@ from recursive_types import (
     IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
     check_equivalence, are_equivalent, verify_certificate,
     EquivalenceCertificate, Divergence,
+    canonicalize, CanonicalForm,
 )
 
 TypeGraph(nodes, root)
@@ -61,6 +66,49 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 - `root1/root2` 可在同一张图上另选比较起点（严格 int、须在范围内）。
 
 两类结果对象均有 `render()`，`demo.py` 展示其输出形态。
+
+## 规范化：把等价节点压成共享表示
+
+缓存类型时，同一种无限展开类型可能有许多不同编号的图（共享方式不同、
+子图被复制、环长不同但展开相同）。`canonicalize` 按与 `check_equivalence`
+相同的 equi-recursive 语义，把**根可达**部分中互为双模拟的节点合并：
+
+```python
+from recursive_types import canonicalize
+
+form = canonicalize(graph, *, root=None)   # root 可覆盖，同 check_equivalence
+form.graph        # TypeGraph：有限商图，只含根可达等价类，根编号为 0
+form.old_to_new   # tuple[int, ...]：旧节点 -> 商图节点；不可达节点为 -1
+form.root         # 商图根编号（恒为 0）
+form.to_bytes()   # 确定性字节表示，可直接作缓存键
+```
+
+示例：μX. X -> Int 的自环、双节点互指环、带不可达垃圾的三种布局，
+规范化后字节表示逐字节相同：
+
+```python
+g_loop  = TypeGraph([FunctionNode((0,), 1), IntNode()], root=0)
+g_pair  = TypeGraph([FunctionNode((1,), 2), FunctionNode((0,), 2), IntNode()], root=0)
+canonicalize(g_loop).to_bytes() == canonicalize(g_pair).to_bytes()  # True
+canonicalize(g_loop).old_to_new   # (0, 1)
+canonicalize(g_pair).old_to_new   # (0, 0, 1) —— 两个环节点并入同一类
+```
+
+算法与约定：
+
+1. **只处理根可达部分**；遍历顺序固定——Product/Sum 字段按名（字典序）、
+   Function 参数按声明次序、返回最后。
+2. **稳定等价划分**：以一层标签（种类；Product/Sum 字段名集合；Function
+   参数个数）为初始划分，反复按 `(一层标签, 后继类编号元组)` 精化到不动点，
+   所得即 bisimulation 等价类。同类节点展开树相同、异类必不同——
+   不会只因局部标签相同而合并。
+3. **确定编号**：从根所在类按同一约定顺序 BFS，按首次访问次序编号
+   0,1,2,…；编号只依赖商图结构与遍历约定，**不使用旧节点编号打破语义
+   平局**，因此输入编号任意置换后 `to_bytes()` 字节序列不变。
+
+`to_bytes()` 布局：`[节点数 u32][根 u32][逐节点记录]`，整数均为 4 字节
+大端；节点记录为种类字节（`I/B/P/S/F`）+ 字段（名字长度前缀的 UTF-8 +
+目标编号，按名排序）或参数/返回编号。
 
 ## 输入上限
 
@@ -117,6 +165,11 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
   双节点互递归交换布局等价、`μX.P{a:X}` 与 `μX.P{a:P{a:X}}` 包装环等价、
   函数参数顺序、深层标签差异（精确深度）、有限链 vs 递归类型在链底分歧、
   300 节点规模、预算耗尽与证伪分离、证书篡改被复核拒绝。
+- 规范化用例（`tests/test_canonicalize.py`）：自环 vs 双节点同构展开、
+  互递归记录 vs 复制子图、3 环 vs 自环、共享 vs 复制、函数参数交换不合并、
+  局部标签相同但展开不同不合并、不可达垃圾忽略；并对每个合并类**独立重算**
+  标签与后继类一致性、把原根与商图根交给原等价检查复核、
+  输入编号任意置换（固定种子 20 次/图）后字节序列逐字节相同。
 
 ## 已知限制
 
@@ -125,6 +178,9 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 - 证书/分歧中的节点号只用于指回输入图以便人工复核，不是类型身份。
 - 对图最坏规模为两图节点数之积；本题 300+300 节点上限下最坏 90 000 对，
   默认预算即按此上界设定。
+- `canonicalize` 是多项式算法（每轮精化只会细分，最多 n 轮收敛），
+  不消耗 `budget`；其输出仅覆盖根可达部分，不可达节点只在
+  `old_to_new` 中以 `-1` 标记。
 
 ## 仓库结构
 
@@ -133,10 +189,12 @@ recursive_types/          # 本题库（可 import）
   __init__.py             # 公开接口
   model.py                # 节点/Field/TypeGraph 与严格校验
   equivalence.py          # 协同检查、bisimulation 证书、BFS 最短分歧、预算
+  canonicalize.py         # 稳定等价划分、商图、确定编号与字节表示
   errors.py               # 可定位错误层级与 BudgetExceededError
 tests/
   reference_unfold.py     # 独立参考（不调用被测核心判定）
   test_model_validation.py
   test_equivalence.py
-demo.py                   # 固定输入：等价证书 + 最短分歧 + 构造期拒绝
+  test_canonicalize.py    # 规范化：商图合并、确定编号、置换不变性
+demo.py                   # 固定输入：等价证书 + 最短分歧 + 规范化商图 + 构造期拒绝
 ```
