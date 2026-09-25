@@ -7,6 +7,7 @@
         IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
         check_equivalence, are_equivalent, verify_certificate,
         EquivalenceCertificate, Divergence, Step, Mismatch,
+        canonicalize, CanonicalForm,
         RecTypeError, TypeGraphError, ArityError, DanglingEdgeError,
         DuplicateFieldError, InvalidNodeError, InvalidRootError,
         GraphSizeError, BudgetExceededError,
@@ -16,6 +17,7 @@
 
 from __future__ import annotations
 
+from .canonicalize import CanonicalForm, canonicalize
 from .errors import (
     ArityError,
     BudgetExceededError,
@@ -81,6 +83,9 @@ __all__ = [
     "Mismatch",
     "EquivalenceResult",
     "DEFAULT_BUDGET",
+    # 规范化
+    "canonicalize",
+    "CanonicalForm",
     # 错误
     "RecTypeError",
     "TypeGraphError",

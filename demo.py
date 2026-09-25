@@ -18,6 +18,7 @@ from recursive_types import (
     SumNode,
     TypeGraph,
     TypeGraphError,
+    canonicalize,
     check_equivalence,
     verify_certificate,
 )
@@ -131,13 +132,61 @@ def demo_rejection() -> None:
         raise AssertionError("bool 编号必须被拒绝")
 
 
+def demo_canonicalize() -> None:
+    section("[4] 规范化：互为双模拟的节点压成同一有限商图（缓存键）")
+
+    # 同一类型 μX. X -> Int 的三种缓存形态：单自环、双节点互指环、
+    # 以及带不可达垃圾节点 + 复制子图的布局。
+    g_self = TypeGraph([FunctionNode((0,), 1), IntNode()], 0)
+    g_pair = TypeGraph(
+        [
+            FunctionNode((2,), 1),
+            IntNode(),
+            FunctionNode((0,), 1),
+        ],
+        0,
+    )
+    g_dirty = TypeGraph(
+        [
+            BoolNode(),                       # 0: 不可达垃圾
+            SumNode((Field("junk", 0),)),     # 1: 不可达垃圾
+            FunctionNode((4,), 3),            # 2: 根，参数指向副本
+            IntNode(),                        # 3
+            FunctionNode((2,), 3),            # 4: 与 2 互指的副本
+        ],
+        2,
+    )
+
+    forms = [canonicalize(g) for g in (g_self, g_pair, g_dirty)]
+    print("μX. X -> Int 的三种图布局（自环 / 双节点环 / 含垃圾与副本）：")
+    print(f"  节点数 2 / 3 / 5，根 0 / 0 / 2")
+    print()
+    print("规范化商图（三种布局共同）：")
+    print(forms[0].render())
+    print()
+    keys = [f.to_bytes() for f in forms]
+    print(f"to_bytes() 缓存键两两相同: {keys[0] == keys[1] == keys[2]}")
+    assert keys[0] == keys[1] == keys[2]
+    print(f"含垃圾布局的旧→新映射: {forms[2].mapping}（None = 不可达，被丢弃）")
+    assert forms[2].mapping == (None, None, 0, 1, 0)
+    print()
+    # 反向断言：参数交换的类型不会被合并成同一键。
+    g_ab = TypeGraph([IntNode(), BoolNode(), FunctionNode((0, 1), 0)], 2)
+    g_ba = TypeGraph([IntNode(), BoolNode(), FunctionNode((1, 0), 0)], 2)
+    differ = canonicalize(g_ab).to_bytes() != canonicalize(g_ba).to_bytes()
+    print(f"参数交换的 Function 类型得到不同缓存键: {differ}")
+    assert differ
+
+
 def main() -> None:
     print("递归类型 equi-recursive 等价检查 —— 固定输入演示")
     demo_equivalence_certificate()
     demo_divergence()
     demo_rejection()
+    demo_canonicalize()
     print()
-    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、2 个构造期拒绝。")
+    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、"
+          "2 个构造期拒绝、1 组规范化缓存键。")
 
 
 if __name__ == "__main__":
