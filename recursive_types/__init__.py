@@ -6,7 +6,8 @@
         TypeGraph, Field,
         IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
         check_equivalence, are_equivalent, verify_certificate,
-        EquivalenceCertificate, Divergence, Step, Mismatch,
+    EquivalenceCertificate, Divergence, Step, Mismatch,
+    share_graph, SharedForm,
         RecTypeError, TypeGraphError, ArityError, DanglingEdgeError,
         DuplicateFieldError, InvalidNodeError, InvalidRootError,
         GraphSizeError, BudgetExceededError,
@@ -54,6 +55,7 @@ from .model import (
     SumNode,
     TypeGraph,
 )
+from .sharing import SharedForm, share_graph
 
 __all__ = [
     # 模型
@@ -81,6 +83,9 @@ __all__ = [
     "Mismatch",
     "EquivalenceResult",
     "DEFAULT_BUDGET",
+    # 共享表示
+    "share_graph",
+    "SharedForm",
     # 错误
     "RecTypeError",
     "TypeGraphError",

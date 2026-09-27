@@ -3,6 +3,7 @@
 一个零依赖、纯标准库的 Python 题库：输入两张**显式节点、可能含环**的有根类型图，
 按无限展开树的 **equi-recursive 等价**定义做成对协同检查，返回等价关系
 （bisimulation）证书或**最短**分歧路径；构造期拒绝悬空边、错误元数等非法输入。
+另提供**共享整理**：把同一张图内含义相同、写法不同的节点合并成可共享的
 
 - Python：**3.14.7**（仅使用 3.10+ 通用语法，不依赖任何第三方包）
 - 依赖：**无**。安装 Python 后直接运行；核心、测试、演示全部离线。
@@ -11,7 +12,7 @@
 ## 运行命令
 
 ```bash
-# 必要测试（47 个用例）
+# 必要测试（61 个用例）
 python -m unittest discover -s tests -v
 
 # 固定输入演示（真实计算；本机实测 < 0.1 秒，远低于约 8 秒要求）
@@ -26,6 +27,7 @@ from recursive_types import (
     IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
     check_equivalence, are_equivalent, verify_certificate,
     EquivalenceCertificate, Divergence,
+    share_graph, SharedForm,
 )
 
 TypeGraph(nodes, root)
@@ -34,6 +36,7 @@ IntNode()
 BoolNode()
 ProductNode((Field("a", 目标编号), ...))   # >=1 个字段，同节点内字段名唯一
 SumNode((Field("x", 目标编号), ...))       # >=1 个字段，同节点内字段名唯一
+# Field 第三参数为可选 mutable 标记（严格 bool，默认 False）
 FunctionNode((参数编号, ...), 结果编号)     # >=1 个有序参数 + 1 个返回
 ```
 
@@ -61,6 +64,34 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 - `root1/root2` 可在同一张图上另选比较起点（严格 int、须在范围内）。
 
 两类结果对象均有 `render()`，`demo.py` 展示其输出形态。
+
+## 共享整理（share_graph）
+
+```python
+shared = share_graph(g)   # -> SharedForm
+```
+
+```
+
+把**同一张图内**含义相同、写法不同的节点合并，得到可共享的最小表示：
+
+- 合并判据：单图内的 bisimulation（equi-recursive 等价）**且**对应同名字段的
+  `mutable` 标记一致——字段名与可变性都是节点签名的一部分，合并不丢失它们。
+- 循环不靠无限展开：用**划分精化**（partition refinement）在有限图上求最粗
+  稳定划分，环上的相互依赖在迭代中收敛，与 DFA 最小化同一思想。
+- 返回 `SharedForm`：
+  - `graph: TypeGraph`：整理后的图，每个等价类恰好一个节点；
+  - `mapping: tuple[int, ...]`：`mapping[i]` 为原节点 `i` 在整理后图中的编号，
+    覆盖原图全部节点（含从根不可达的节点）；
+  - `merged_count` / `render()`：被合并的节点数与可读展示。
+- **幂等**：对 `shared.graph` 再次 `share_graph` 不产生任何新的结构变化
+  （节点序列、根、边逐一相同，二次 mapping 为恒等映射）。
+- 整理前后整体等价：`are_equivalent(g, shared.graph)` 恒为真。
+- 编号确定性：从根所在类 BFS（字段按名排序、函数按参数序再返回），
+  不可达类按最小成员编号补齐——同一输入永远得到同一输出。
+
+注意：`mutable` 标记**不参与** `check_equivalence` 的结构等价判定
+（等价契约不变），仅在共享整理中作为合并判据，防止合并丢失可变性。
 
 ## 输入上限
 
@@ -106,6 +137,9 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 5. **判据范围**：equi-recursive 树等价（bisimulation）。不实现 iso-recursive
    fold/unfold、参数化多态、行类型、子类型、递归类型有效性（收缩性/可操作性）
    等行业标准中的更大子集；不宣称与任何具体语言规范兼容。
+6. **共享整理由划分精化实现**：不做成对枚举（O(n^2) 对 × 对图搜索），
+   而是按签名分桶迭代细化到不动点，多项式且天然处理环；
+   确定性 BFS 编号保证输出唯一、幂等可断言。
 
 ## 测试与独立参考
 
@@ -117,6 +151,11 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
   双节点互递归交换布局等价、`μX.P{a:X}` 与 `μX.P{a:P{a:X}}` 包装环等价、
   函数参数顺序、深层标签差异（精确深度）、有限链 vs 递归类型在链底分歧、
   300 节点规模、预算耗尽与证伪分离、证书篡改被复核拒绝。
+- 共享整理用例（`tests/test_sharing.py`）：24 张随机无环图逐节点与独立展开
+  参考交叉核对语义保持；自环/互指循环合并、`μX.P{a:X}` 包装环合并、
+  字段名不同不合并、同名 `mutable` 不同不合并且标记原样保留、
+  不可达节点映射完整、非 TypeGraph 拒绝；幂等性断言二次整理节点序列/
+  根/mapping 逐一相同。
 
 ## 已知限制
 
@@ -125,6 +164,8 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 - 证书/分歧中的节点号只用于指回输入图以便人工复核，不是类型身份。
 - 对图最坏规模为两图节点数之积；本题 300+300 节点上限下最坏 90 000 对，
   默认预算即按此上界设定。
+- `mutable` 只影响共享整理的合并判据，不影响 `check_equivalence`：
+  两类型仅在可变性上不同时仍判等价，但在整理时不会被合并。
 
 ## 仓库结构
 
@@ -133,10 +174,14 @@ recursive_types/          # 本题库（可 import）
   __init__.py             # 公开接口
   model.py                # 节点/Field/TypeGraph 与严格校验
   equivalence.py          # 协同检查、bisimulation 证书、BFS 最短分歧、预算
+  sharing.py              # 共享整理：划分精化合并同义节点、确定性编号、映射
   errors.py               # 可定位错误层级与 BudgetExceededError
 tests/
   reference_unfold.py     # 独立参考（不调用被测核心判定）
   test_model_validation.py
   test_equivalence.py
-demo.py                   # 固定输入：等价证书 + 最短分歧 + 构造期拒绝
+  test_sharing.py
+demo.py                   # 固定输入：等价证书、最短分歧、构造期拒绝、共享整理
 ```
+另提供**共享整理**：把同一张图内含义相同、写法不同的节点合并成可共享的
+最小表示，并带回原节点与整理后节点的对应关系。

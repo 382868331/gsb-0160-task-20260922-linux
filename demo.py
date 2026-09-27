@@ -19,6 +19,7 @@ from recursive_types import (
     TypeGraph,
     TypeGraphError,
     check_equivalence,
+    share_graph,
     verify_certificate,
 )
 
@@ -131,13 +132,54 @@ def demo_rejection() -> None:
         raise AssertionError("bool 编号必须被拒绝")
 
 
+def demo_sharing() -> None:
+    section("[4] 正常结果：整理成可共享表示（合并同义节点，幂等）")
+
+    # 同一张图里，muX. X -> Int 被写了三遍：自环、双节点互指绕回；
+    # 另有一个可变字段与一个不可变字段，结构相同但可变性不同，不得合并。
+    g = TypeGraph(
+        [
+            FunctionNode((0,), 2),                        # 0: 自环 muX. X->Int
+            FunctionNode((3,), 2),                        # 1
+            IntNode(),                                    # 2
+            FunctionNode((1,), 2),                        # 3: 与 1 互指，同义
+            ProductNode((Field("cell", 2, True),)),      # 4: 可变字段
+            ProductNode((Field("cell", 2, False),)),     # 5: 不可变，不合并
+            ProductNode(                                  # 6: 根
+                (Field("f", 0), Field("g", 1),
+                 Field("m", 4), Field("n", 5))
+            ),
+        ],
+        root=6,
+    )
+
+    shared = share_graph(g)
+    print("原图 7 个节点：muX. X->Int 有三种写法，另有一对仅可变性不同的 Product")
+    print(shared.render())
+    print()
+    print("对应关系 mapping（原节点 -> 整理后节点）:", shared.mapping)
+    assert shared.mapping[0] == shared.mapping[1] == shared.mapping[3]
+    assert shared.mapping[4] != shared.mapping[5]  # 可变性不同，不合并
+
+    again = share_graph(shared.graph)
+    same = (
+        again.graph.nodes == shared.graph.nodes
+        and again.graph.root == shared.graph.root
+        and again.merged_count == 0
+    )
+    print(f"幂等复核：对整理结果再次整理，结构零变化 -> {same}")
+    assert same
+
+
 def main() -> None:
     print("递归类型 equi-recursive 等价检查 —— 固定输入演示")
     demo_equivalence_certificate()
     demo_divergence()
     demo_rejection()
+    demo_sharing()
     print()
-    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、2 个构造期拒绝。")
+    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、"
+          "2 个构造期拒绝、1 次共享整理（含幂等复核）。")
 
 
 if __name__ == "__main__":

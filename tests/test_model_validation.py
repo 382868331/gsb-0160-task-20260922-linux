@@ -142,6 +142,22 @@ class ValidationTests(unittest.TestCase):
         nodes.append(IntNode())  # 事后修改入参不影响已构造的图
         self.assertEqual(len(g), 2)
 
+    def test_mutable_flag_must_be_strict_bool(self) -> None:
+        for bad in (1, 0, "yes", None):
+            with self.assertRaises(InvalidNodeError):
+                TypeGraph(
+                    [IntNode(), ProductNode((Field("a", 0, bad),))],  # type: ignore[arg-type]
+                    1,
+                )
+        # True/False 合法且被保留
+        g = TypeGraph(
+            [IntNode(), ProductNode((Field("a", 0, True), Field("b", 0),))],
+            1,
+        )
+        fields = {f.name: f for f in g[1].fields}  # type: ignore[attr-defined]
+        self.assertTrue(fields["a"].mutable)
+        self.assertFalse(fields["b"].mutable)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
