@@ -1,8 +1,11 @@
 # 显式节点的递归类型等价检查（equi-recursive type equivalence）
 
-一个零依赖、纯标准库的 Python 题库：输入两张**显式节点、可能含环**的有根类型图，
+一个零依赖、纯标准库的 Python 题库：输入**显式节点、可能含环**的有根类型图，
 按无限展开树的 **equi-recursive 等价**定义做成对协同检查，返回等价关系
-（bisimulation）证书或**最短**分歧路径；构造期拒绝悬空边、错误元数等非法输入。
+（bisimulation）证书或**最短**分歧路径；并可把**一组**类型图一次性整理成
+一张**可共享的规范化图**（等价子图合并、含环不展开、保留字段名与可变性、
+带回原节点对应、重复整理幂等），使后续比较只需比对规范化节点号。
+构造期拒绝悬空边、错误元数等非法输入。
 
 - Python：**3.14.7**（仅使用 3.10+ 通用语法，不依赖任何第三方包）
 - 依赖：**无**。安装 Python 后直接运行；核心、测试、演示全部离线。
@@ -11,7 +14,7 @@
 ## 运行命令
 
 ```bash
-# 必要测试（47 个用例）
+# 必要测试（68 个用例）
 python -m unittest discover -s tests -v
 
 # 固定输入演示（真实计算；本机实测 < 0.1 秒，远低于约 8 秒要求）
@@ -35,6 +38,9 @@ BoolNode()
 ProductNode((Field("a", 目标编号), ...))   # >=1 个字段，同节点内字段名唯一
 SumNode((Field("x", 目标编号), ...))       # >=1 个字段，同节点内字段名唯一
 FunctionNode((参数编号, ...), 结果编号)     # >=1 个有序参数 + 1 个返回
+
+# 字段可变性（严格 bool，默认 False）；可变/不可变是不同语义：
+Field(name, target, mutable=False)
 ```
 
 节点种类：`Int`、`Bool`（叶子）、`Product`、`Sum`（命名字段集合）、
@@ -62,6 +68,40 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 
 两类结果对象均有 `render()`，`demo.py` 展示其输出形态。
 
+## 共享规范化表示：`canonicalize`
+
+```python
+from recursive_types import canonicalize, canonical_node_of
+
+result = canonicalize(g)                       # 单张图
+result = canonicalize((g1, g2, g3))           # 一组图一起整理（跨图合并）
+result = canonicalize((g1, g2), roots=(0, 3)) # 显式指定每张图的根
+```
+
+返回 `Canonicalization`：
+
+- `graph: TypeGraph`：共享的规范化图，语义相同（无限展开树相同）的原节点
+  合并为同一个节点；字段按名排序、出边重映射为规范化编号。
+- `roots: tuple[int, ...]`：每张输入图的根所对应的规范化节点号；
+  `graph.root` 取第 0 张图的根。
+- `mapping: tuple[tuple[int, ...], ...]`：`mapping[i][j]` 是第 `i` 张图
+  节点 `j` 的规范化节点号——即题目要求的“原节点 ↔ 整理后节点”对应关系；
+  该映射对边封闭（同态），可用 `canonical_node_of(result, i, j)` 查询。
+- `class_count` / `total_input_nodes`：合并后类数 / 合并前节点总数。
+
+关键性质：
+
+- **循环不展开**：用分区精化（coarsest stable partition / 互模拟等价类），
+  初始按一层骨架分块，再用“骨架 + 子节点当前类”的签名迭代到稳定；
+- **字段名与可变性不丢失**：二者都是签名的一部分，名字或可变性不同绝不合并；
+- **幂等**：对 `result.graph` 再次 `canonicalize`，节点数、结构、编号都不变，
+  对应关系为恒等（`mapping` 为 `0..k-1`）；
+- 整理后两类型是否等价只需比较其规范化根节点号是否相等，不必再从头遍历。
+- 合并后语义类数仍受单图 300 节点上限约束，超出抛 `GraphSizeError`
+  （在构造规范化图前抛出，无部分结果）。
+- `budget`（默认 100 000，正的严格 int）限定签名计算次数；收敛前耗尽抛
+  `BudgetExceededError`（结果未知），与等价检查一样不把“未知”报成结论。
+
 ## 输入上限
 
 | 边界 | 值 | 处理 |
@@ -69,6 +109,7 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 | 单图节点数 | 1..300 | 越界抛 `GraphSizeError` |
 | 节点编号 | 严格 `int`，`0 <= i < n` | bool 抛 `InvalidNodeError`；越界/负数抛 `DanglingEdgeError` |
 | Product/Sum 元数 | 字段数 >= 1，字段名非空 str、同节点唯一 | 否则 `ArityError` / `InvalidNodeError` / `DuplicateFieldError` |
+| 字段可变性 | 严格 `bool`（默认 `False`，不接受 `1`/`"yes"` 等） | 否则 `InvalidNodeError`；同名字段可变/不可变判不等价 |
 | Function 元数 | 有序参数 >= 1，返回恰好 1 个 | 否则 `ArityError`；目标越界为 `DanglingEdgeError` |
 | 根 | 严格 int、非 bool、在范围内 | 否则 `InvalidRootError` |
 
@@ -106,13 +147,22 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 5. **判据范围**：equi-recursive 树等价（bisimulation）。不实现 iso-recursive
    fold/unfold、参数化多态、行类型、子类型、递归类型有效性（收缩性/可操作性）
    等行业标准中的更大子集；不宣称与任何具体语言规范兼容。
+6. **共享整理用分区精化**：`canonicalize` 在所有输入图的并集节点上求最粗稳定
+   分区，同一块即一个互模拟等价类；规范化编号按各等价类的最小
+   `(图序, 节点序)` 代表确定性赋值，因此与输入顺序、字段书写顺序无关，
+   天然幂等。它与 `check_equivalence` 是同一语义的两种视图：
+   规范化根相同 ⇔ 两根等价。
 
 ## 测试与独立参考
 
 - `tests/reference_unfold.py` 是**独立参考**：不 import 被测判定算法，
   自行把无环图完整展开为有限嵌套元组树比较，并自带独立的对图 BFS 分歧深度。
 - 36 张确定性随机无环图（固定种子）两两比较，结论与分歧深度均与参考交叉核对；
-  另有字段重排、下标布局反转等“同构不同表示”用例。
+  另有字段重排、下标布局反转、字段可变性一致/不一致等“同构不同表示”用例。
+- `test_canonicalization.py`：30 张随机无环图 + 字段打乱变体一起整理，
+  逐对节点核对“规范化合并 ⇔ 独立展开树相等”；自递归/包装环/互指副本跨图合并、
+  叶子或字段名/可变性不同不得合并、映射对边封闭、重复整理幂等、
+  参数校验、预算耗尽为未知。
 - 递归用例为手工固定构造：自递归等价（μX. X→Int 两种布局）、
   双节点互递归交换布局等价、`μX.P{a:X}` 与 `μX.P{a:P{a:X}}` 包装环等价、
   函数参数顺序、深层标签差异（精确深度）、有限链 vs 递归类型在链底分歧、
@@ -123,6 +173,9 @@ result = check_equivalence(g1, g2, *, root1=None, root2=None, budget=90_000)
 - 仅覆盖本题契约的五种节点构造子；不支持元组、递归变量绑定、泛型等。
 - Product/Sum 字段名匹配区分大小写，按精确字符串相等。
 - 证书/分歧中的节点号只用于指回输入图以便人工复核，不是类型身份。
+- `canonicalize` 一次整理**给定的**一组图；不同批次调用之间不维护隐式
+  全局共享状态（结果显式返回，需要跨批次共享时把上一批的 `result.graph`
+  作为输入再整理即可，且该操作幂等）。
 - 对图最坏规模为两图节点数之积；本题 300+300 节点上限下最坏 90 000 对，
   默认预算即按此上界设定。
 
@@ -133,10 +186,12 @@ recursive_types/          # 本题库（可 import）
   __init__.py             # 公开接口
   model.py                # 节点/Field/TypeGraph 与严格校验
   equivalence.py          # 协同检查、bisimulation 证书、BFS 最短分歧、预算
+  canonicalization.py     # 分区精化、共享规范化图、原节点对应、幂等
   errors.py               # 可定位错误层级与 BudgetExceededError
 tests/
   reference_unfold.py     # 独立参考（不调用被测核心判定）
   test_model_validation.py
   test_equivalence.py
+  test_canonicalization.py
 demo.py                   # 固定输入：等价证书 + 最短分歧 + 构造期拒绝
 ```

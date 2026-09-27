@@ -22,7 +22,12 @@ def unfold(g: TypeGraph, root: int) -> tuple:
         if k in ("Int", "Bool"):
             tree = (k,)
         elif k in ("Product", "Sum"):
-            fields = tuple(sorted((f.name, build(f.target)) for f in node.fields))
+            fields = tuple(
+                sorted(
+                    ((f.name, f.mutable, build(f.target)) for f in node.fields),
+                    key=lambda item: item[0],
+                )
+            )
             tree = (k, fields)
         else:  # Function
             params = tuple(build(p) for p in node.params)
@@ -52,7 +57,9 @@ def reference_pair_children(
     if n1.kind in ("Product", "Sum"):
         f1 = sorted(n1.fields, key=lambda f: f.name)
         f2 = sorted(n2.fields, key=lambda f: f.name)
-        if [f.name for f in f1] != [f.name for f in f2]:
+        if [(f.name, f.mutable) for f in f1] != [
+            (f.name, f.mutable) for f in f2
+        ]:
             return None
         return [(a.target, b.target) for a, b in zip(f1, f2)]
     # Function

@@ -4,8 +4,8 @@
 ----
 类型按其*无限展开树*相等定义（equi-recursive equivalence）：把每个节点沿出边
 无限展开得到一棵可能无限的树，两类型等价当且仅当这两棵树逐路径同构——
-节点种类一致；Product/Sum 同一字段名下的子树一致；Function 参数按有序位置
-一一对应且返回一致。节点编号与共享程度都不是语义。
+节点种类一致；Product/Sum 同一字段名下的子树一致且**可变性一致**；
+Function 参数按有序位置一一对应且返回一致。节点编号与共享程度都不是语义。
 
 算法
 ----
@@ -174,10 +174,17 @@ def _structural_children(
             )
         children: list[tuple[int, int, Step]] = []
         for name in sorted(names1):  # 确定性顺序；不影响按名对应
+            fld1, fld2 = f1[name], f2[name]
+            if fld1.mutable is not fld2.mutable:
+                return None, Mismatch(
+                    f"{k1} field {name!r} mutability differs",
+                    f"mutable={fld1.mutable}",
+                    f"mutable={fld2.mutable}",
+                )
             children.append(
                 (
-                    f1[name].target,
-                    f2[name].target,
+                    fld1.target,
+                    fld2.target,
                     Step("field", name),
                 )
             )

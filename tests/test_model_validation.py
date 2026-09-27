@@ -105,6 +105,21 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(InvalidNodeError):
             TypeGraph([IntNode(), ProductNode((Field("", 0),))], 1)
 
+    def test_field_mutability_must_be_strict_bool(self) -> None:
+        with self.assertRaises(InvalidNodeError):
+            TypeGraph([ProductNode((Field("a", 0, 1),))], 0)
+        with self.assertRaises(InvalidNodeError):
+            TypeGraph([ProductNode((Field("a", 0, "yes"),))], 0)
+
+    def test_field_mutability_defaults_false_and_preserved(self) -> None:
+        g = TypeGraph(
+            [ProductNode((Field("a", 1), Field("b", 1, True),)), IntNode()],
+            0,
+        )
+        fields = {f.name: f for f in g[0].fields}
+        self.assertFalse(fields["a"].mutable)
+        self.assertTrue(fields["b"].mutable)
+
     def test_root_out_of_range(self) -> None:
         with self.assertRaises(InvalidRootError):
             TypeGraph([IntNode()], 1)

@@ -55,10 +55,15 @@ def _as_int(value: object, location: str, what: str) -> int:
 
 @dataclass(frozen=True)
 class Field:
-    """Product/Sum 的一个命名字段：``name -> target``。"""
+    """Product/Sum 的一个命名字段：``name -> target``。
+
+    :param mutable: 字段可变性（严格 ``bool``，非 ``int``）。可变与不可变
+        字段即使名字、负载类型完全相同也**不**等价；默认 ``False``。
+    """
 
     name: str
     target: int
+    mutable: bool = False
 
 
 @dataclass(frozen=True)
@@ -194,6 +199,14 @@ class TypeGraph:
                     f"duplicate field name {name!r} in {node.kind}", loc
                 )
             seen.add(name)
+            mutable = field.mutable
+            if type(mutable) is not bool:
+                kind = type(mutable).__name__
+                raise InvalidNodeError(
+                    f"field mutability must be a strict bool "
+                    f"(got {kind}: {mutable!r})",
+                    floc,
+                )
             target = _as_int(field.target, floc, "field target")
             if not 0 <= target < n:
                 raise DanglingEdgeError(
@@ -201,7 +214,7 @@ class TypeGraph:
                     f"valid range is [0, {n - 1}]",
                     loc,
                 )
-            fields.append(Field(name, target))
+            fields.append(Field(name, target, mutable))
         if isinstance(node, ProductNode):
             return ProductNode(tuple(fields))
         return SumNode(tuple(fields))

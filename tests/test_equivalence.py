@@ -398,10 +398,39 @@ class StructuralRulesTests(unittest.TestCase):
         self.assertEqual(result.depth, k)
         self.assertTrue(all(s.selector == "field" for s in result.path))
         self.assertIn("field-name sets differ", result.mismatch.reason)
-        ref_depth = shortest_divergence_depth(
-            g1, g1.root, g2, g2.root
+
+    def test_field_mutability_difference_diverges(self) -> None:
+        g1 = TypeGraph(
+            [ProductNode((Field("a", 1),)), IntNode()], 0
         )
-        self.assertEqual(result.depth, ref_depth)
+        g2 = TypeGraph(
+            [ProductNode((Field("a", 1, True),)), IntNode()], 0
+        )
+        result = check_equivalence(g1, g2)
+        self.assertIsInstance(result, Divergence)
+        self.assertEqual(result.depth, 0)
+        self.assertIn("mutability", result.mismatch.reason)
+        self.assertFalse(are_equivalent(g1, g2))
+
+    def test_field_mutability_match_equivalent(self) -> None:
+        g1 = TypeGraph(
+            [
+                ProductNode((Field("a", 0, True), Field("b", 1, False),)),
+                IntNode(),
+            ],
+            0,
+        )
+        g2 = TypeGraph(
+            [
+                IntNode(),
+                ProductNode((Field("b", 0), Field("a", 2, True),)),
+                ProductNode((Field("a", 2, True), Field("b", 0),)),
+            ],
+            1,
+        )
+        result = check_equivalence(g1, g2)
+        self.assertIsInstance(result, EquivalenceCertificate)
+        self.assertTrue(verify_certificate(g1, g2, result))
 
     def test_sharing_vs_duplication_indistinguishable(self) -> None:
         # Product{a: Int, b: Int}：共享同一 Int 节点 vs 复制两个 Int 节点。

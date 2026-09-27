@@ -6,6 +6,7 @@
         TypeGraph, Field,
         IntNode, BoolNode, ProductNode, SumNode, FunctionNode,
         check_equivalence, are_equivalent, verify_certificate,
+        canonicalize, canonical_node_of, Canonicalization,
         EquivalenceCertificate, Divergence, Step, Mismatch,
         RecTypeError, TypeGraphError, ArityError, DanglingEdgeError,
         DuplicateFieldError, InvalidNodeError, InvalidRootError,
@@ -37,6 +38,12 @@ from .equivalence import (
     are_equivalent,
     check_equivalence,
     verify_certificate,
+)
+from .canonicalization import (
+    DEFAULT_CANONICAL_BUDGET,
+    Canonicalization,
+    canonical_node_of,
+    canonicalize,
 )
 from .model import (
     BOOL,
@@ -81,6 +88,10 @@ __all__ = [
     "Mismatch",
     "EquivalenceResult",
     "DEFAULT_BUDGET",
+    "canonicalize",
+    "canonical_node_of",
+    "Canonicalization",
+    "DEFAULT_CANONICAL_BUDGET",
     # 错误
     "RecTypeError",
     "TypeGraphError",

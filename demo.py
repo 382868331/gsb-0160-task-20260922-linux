@@ -18,6 +18,7 @@ from recursive_types import (
     SumNode,
     TypeGraph,
     TypeGraphError,
+    canonicalize,
     check_equivalence,
     verify_certificate,
 )
@@ -131,13 +132,81 @@ def demo_rejection() -> None:
         raise AssertionError("bool 编号必须被拒绝")
 
 
+def demo_canonicalization() -> None:
+    section("[4] 正常结果：一组递归类型整理成可共享的规范化表示")
+
+    # 三种写法的同一递归类型 T = μX. Product{a: X, flag: Bool}：
+    #  * g1 单环；
+    #  * g2 换成互指的两个副本（共享 vs 复制不区分）、字段顺序打乱；
+    #  * g3 只把 flag 字段改成可变——可变性不同，禁止与前两者合并。
+    # 另放一个无关的 Int 叶子验证跨图共享。
+    g1 = TypeGraph(
+        [
+            ProductNode((Field("a", 0), Field("flag", 1))),  # 0 T
+            BoolNode(),                                         # 1
+        ],
+        root=0,
+    )
+    g2 = TypeGraph(
+        [
+            BoolNode(),                                  # 0
+            ProductNode((Field("flag", 0), Field("a", 2))),  # 1 副本 b
+            ProductNode((Field("a", 1), Field("flag", 0))),  # 2 副本 a
+        ],
+        root=2,
+    )
+    g3 = TypeGraph(
+        [
+            ProductNode((Field("a", 0), Field("flag", 1, True))),
+            BoolNode(),
+        ],
+        root=0,
+    )
+    g_int = TypeGraph([IntNode()], root=0)
+
+    result = canonicalize((g1, g2, g3, g_int))
+    print("输入 4 张图共 8 个节点（含两种 T 写法 + 可变 T + Int）")
+    print(result.render())
+    print("逐图根的规范化对应:", result.roots)
+    print("逐节点对应 mapping:", result.mapping)
+    print()
+    assert result.roots[0] == result.roots[1], "同构不同写法必须合并"
+    assert result.roots[0] != result.roots[2], "可变性不同不得合并"
+    # 规范化结果保留可变性。
+    mutable_fields = {
+        f.name: f.mutable for f in result.graph[result.roots[2]].fields
+    }
+    assert mutable_fields == {"a": False, "flag": True}
+
+    # 幂等：对整理结果再次整理，节点不再变化，对应为恒等。
+    again = canonicalize(result.graph)
+    assert again.class_count == result.class_count
+    assert tuple(again.mapping[0]) == tuple(range(result.class_count))
+    print(
+        "再次整理：节点数仍为",
+        again.class_count,
+        "，对应关系为恒等",
+        tuple(again.mapping[0]),
+        "（幂等）",
+    )
+    # 后续比较只看规范化节点号即可，不必再从头协同遍历。
+    print(
+        "g1 根与 g2 根规范化节点相同 => 直接判定等价，无需再遍历",
+        result.roots[0] == result.roots[1],
+    )
+
+
 def main() -> None:
     print("递归类型 equi-recursive 等价检查 —— 固定输入演示")
     demo_equivalence_certificate()
     demo_divergence()
     demo_rejection()
+    demo_canonicalization()
     print()
-    print("演示完成：1 个等价证书（含独立复核）、1 条最短分歧、2 个构造期拒绝。")
+    print(
+        "演示完成：1 个等价证书（含独立复核）、1 条最短分歧、2 个构造期"
+        "拒绝、1 个共享规范化整理（含可变性与幂等校验）。"
+    )
 
 
 if __name__ == "__main__":
